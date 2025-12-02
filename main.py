@@ -1,54 +1,61 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from openai import AsyncOpenAI
+from openai import OpenAI
 import os
 from dotenv import load_dotenv
-
-from rag.vectorstore import search
-from rag.documents import documents
 
 load_dotenv()
 
 app = FastAPI()
 
-client = AsyncOpenAI(
+client = OpenAI(
     base_url=os.getenv("BASE_URL"),
     api_key=os.getenv("API_KEY")
 )
 
-class AskRagRequest(BaseModel):
+
+# === Request Model ===
+class AskRequest(BaseModel):
     question: str
 
 
-@app.post("/ask-rag")
-async def ask_rag(request: AskRagRequest):
+# === Prompt Template ===
+SYSTEM_PROMPT = """
+You are a precise and reliable AI assistant.
+Your role is to provide short, accurate, and well-structured answers.
+
+Rules:
+- Do NOT hallucinate.
+- If you don't know, say "I don't have enough information to answer."
+- Keep explanations concise unless asked for details.
+- Avoid unnecessary words.
+"""
+
+
+# === API Endpoint ===
+@app.post("/ask")
+async def ask_question(request: AskRequest):
     try:
-        # Step 1: Retrieve relevant docs
-        doc_ids = search(request.question, k=3)
-        retrieved = "\n\n".join([documents[i] for i in doc_ids])
-
-        # Step 2: Build augmented prompt
-        system_prompt = (
-            "You are an AI assistant that answers questions using only the retrieved context.\n"
-            "If the answer is not in the context, say you don't know.\n\n"
-            f"Context:\n{retrieved}\n\n"
-        )
-
-        # Step 3: Ask Gemma model with context
-        response = await client.chat.completions.create(
+        response = client.chat.completions.create(
             model="gemma3:4b",
+            temperature=0.1,       # Deterministic behavior
+            top_p=1,               # No sampling restriction
             messages=[
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": request.question}
             ]
         )
 
-        answer = response.choices[0].message.content
+        answer = response.choices[0].message.content.strip()
 
         return {
-            "answer": answer,
-            "context_used": retrieved
+            "success": True,
+            "model": "gemma3:4b",
+            "answer": answer
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=f"AI model error: {str(e)}"
+        )
