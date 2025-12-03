@@ -25,7 +25,7 @@ async def ask_rag(request: AskRagRequest):
     try:
         # Step 1: Retrieve relevant docs
         doc_ids = search(request.question, k=3)
-        retrieved = "\n\n".join([documents[i] for i in doc_ids])
+        retrieved = "\n\n".join(doc_ids)
 
         # Step 2: Build augmented prompt
         system_prompt = (
